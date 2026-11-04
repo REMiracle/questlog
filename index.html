@@ -11,6 +11,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link id="fontlink" rel="stylesheet" href="">
@@ -213,6 +214,24 @@ table.st td.n{font-family:var(--fh);font-size:calc(10px*var(--hs));text-align:ri
 #hexin{width:116px;text-transform:lowercase}
 .pf input[type=number]{width:74px}
 
+/* mini window */
+.minimode #app{display:block;max-width:none;padding:10px 10px 16px}
+.minimode .side{display:none}
+.minimode main{gap:10px;padding:0}
+.mhead{display:flex;gap:10px;align-items:center;padding:10px 12px}
+.mhead .avatar{flex:none}
+.mhead .avatar>*{width:44px;height:44px;display:block}
+.minimode .px{padding:12px}
+.minimode .qrow{padding:6px 8px;gap:8px}
+.minimode .qrow .ib,.minimode .qi{display:none}
+.minimode .qm{margin-top:2px}
+.minimode .qm .chip{font-size:.7em}
+.minimode .chk{width:26px;height:26px}
+.mtitle{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.codeb{font-family:ui-monospace,Consolas,monospace;background:var(--panel2);padding:8px 10px;white-space:pre-wrap;word-break:break-all;font-size:.72em;box-shadow:inset 0 0 0 2px var(--line);max-height:180px;overflow:auto;margin:6px 0}
+.f-remind{display:none}
+form[data-type="daily"] .f-remind{display:flex}
+
 /* login & sync */
 #login:empty{display:none}
 .login{min-height:100vh;display:grid;place-items:center;padding:20px}
@@ -313,14 +332,10 @@ form[data-type="daily"] .f-days,form[data-type="special"] .f-deadline,form[data-
 <div id="fx"></div>
 
 <script>
-/* ===================== НАСТРОЙКА ОБЛАКА =====================
-   Впиши сюда данные своего проекта Supabase (см. README.md).
-   Если оставить пустыми, приложение работает без входа и хранит всё только в браузере. */
-const CONFIG = {
-  SUPABASE_URL: 'https://mypqwtecblqjogrofjie.supabase.co',             // например: https://abcdefgh.supabase.co
-  SUPABASE_KEY: 'sb_publishable_13bfo2EbnQE68zfCVMu8xA_Ccad4vE6',             // publishable key (sb_publishable_...) или старый anon key
-  LOGIN_DOMAIN: 'questlog.app', // логин "ivan" превращается в ivan@questlog.app
-};
+/* ===================== НАСТРОЙКИ ИЗ config.js ===================== */
+const CONFIG = Object.assign({SUPABASE_URL:'', SUPABASE_KEY:'', LOGIN_DOMAIN:'questlog.app', VAPID_PUBLIC_KEY:''}, window.QUESTLOG_CONFIG || {});
+try { if (CONFIG.SUPABASE_URL) CONFIG.SUPABASE_URL = new URL(CONFIG.SUPABASE_URL.trim()).origin; } catch(e){}
+const MINI = new URLSearchParams(location.search).has('mini');
 
 /* ===================== УТИЛИТЫ ===================== */
 const $ = s => document.querySelector(s);
@@ -486,6 +501,7 @@ const defLook = () => ({colors:{light:clone(PRESETS.parchment.c), dark:clone(PRE
 const defCustom = () => Object.assign(defLook(), {labels:{}, rules:defRules(), avatar:null, typeIcons:{}, recent:['#1b1209','#ffffff','#f1c08d','#5a3418','#e04848','#29adff','#00e436','#ffec27']});
 
 let LS = 'questlog.v1';
+const defNotify = () => ({enabled:false, morningOn:true, morning:'09:00', eveningOn:true, evening:'21:00'});
 function seed(){
   const t = today();
   return {
@@ -503,6 +519,7 @@ function seed(){
     purchases:[], notes:[], sprites:[],
     stats:{done:0,xp:0,gold:0}, daylog:{},
     settings:{theme:'auto',penalty:true},
+    notify:defNotify(),
     custom:defCustom(),
     lastCheck:addDays(t,-1),
   };
@@ -515,6 +532,7 @@ function normalize(s){
   out.custom.rules = Object.assign(defRules(), c.rules||{});
   out.custom.labels = c.labels || {}; out.custom.typeIcons = c.typeIcons || {};
   out.settings = Object.assign({theme:'auto',penalty:true}, s.settings||{});
+  out.notify = Object.assign(defNotify(), s.notify||{});
   for (const k of ['notes','sprites','purchases','tasks','rewards','quests']) if (!Array.isArray(out[k])) out[k] = [];
   if (out.hero.name==='Герой') out.hero.name = '';
   return out;
@@ -601,7 +619,11 @@ async function enterAs(u){
   if (remote && (!cache || remote.ts >= (cache._ts||0))){ S = normalize(remote.data); S._ts = remote.ts; writeLocal(); startApp(); setSync('ok'); }
   else { S = cache || readLocal('questlog.v1') || seed(); if (!S._ts) S._ts = Date.now(); writeLocal(); startApp(); dirty = true; push(); }
 }
-function startApp(){ $('#login').innerHTML = ''; $('#app').style.display = ''; processDays(); render(); }
+function startApp(){
+  $('#login').innerHTML = ''; $('#app').style.display = '';
+  try { const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz && S.settings.tz!==tz){ S.settings.tz = tz; save(); } } catch(e){}
+  processDays(); render(); initSW();
+}
 async function boot(){
   ui.sync = {st:'local', msg:''};
   if (!cloudOn()){ S = readLocal(LS) || seed(); startApp(); return; }
@@ -615,7 +637,7 @@ async function boot(){
 let saveT = null; const saveSoon = () => { clearTimeout(saveT); saveT = setTimeout(save,300); };
 
 const ui = {view:'today', filter:'all', week:0, month:0, planMode:'week', selDay:null, click:null, nq:'',
-  setTab:'look', colorSlot:'light', tool:'pen', color:'#1b1209', hsv:null, mirror:false, grid:true, ed:null, sync:{st:'local',msg:''}};
+  setTab:'look', colorSlot:'light', tool:'pen', color:'#1b1209', hsv:null, mirror:false, grid:true, ed:null, sync:{st:'local',msg:''}, keys:null};
 
 /* ===================== ПРАВИЛА ===================== */
 const R = () => S.custom.rules;
@@ -790,6 +812,7 @@ function qRow(q, opts={}){
   if (st>0) chips.push(`<span class="chip">${icon('flame',11)} ${st}${q.type==='weekly'?' нед.':''}</span>`);
   if (q.type==='daily' && opts.showType) chips.push(`<span class="chip">${daysLabel(q.days)}</span>`);
   if (q.type==='special') chips.push(deadlineChip(q));
+  if (q.type==='daily' && q.remind) chips.push(`<span class="chip">⏰ ${q.remind}</span>`);
   return `<div class="qrow t-${q.type} ${done?'done':''} ${q.failed&&!done?'failed':''}">
     ${chk(done,'toggle',q.id)}${iconCell(q,q.type)}
     <div class="qb"><div class="qt">${esc(q.title)}</div><div class="qm">${chips.join('')}</div></div>
@@ -802,6 +825,7 @@ function tRow(x, opts={}){
   chips.push(`<span class="chip">${esc(DIFF(x.diff||1).n)}</span>`);
   if (!x.done && x.date<t) chips.push(`<span class="chip warn">перенесено с ${fmtDate(x.date)}</span>`);
   else if (!x.done && x.date>t) chips.push(`<span class="chip">${fmtDate(x.date,{weekday:'short',day:'numeric',month:'short'})}</span>`);
+  if (x.time && !x.done) chips.push(`<span class="chip">⏰ ${x.time}</span>`);
   return `<div class="qrow t-task ${x.done?'done':''}">
     ${chk(x.done,'toggleTask',x.id)}${iconCell(x,'task')}
     <div class="qb"><div class="qt">${esc(x.title)}</div><div class="qm">${chips.join('')}</div></div>
@@ -1131,8 +1155,8 @@ function refreshStudio(){ $('#main').innerHTML = vStudio(); initCanvas(); initPi
 
 /* ===================== НАСТРОЙКИ ===================== */
 function vSettings(){
-  const tabs = [['look','Внешний вид'],['texts','Тексты'],['rules','Правила'],['data','Данные']];
-  const body = {look:setLook, texts:setTexts, rules:setRules, data:setData}[ui.setTab]();
+  const tabs = [['look','Внешний вид'],['notify','Виджет и уведомления'],['texts','Тексты'],['rules','Правила'],['data','Данные']];
+  const body = {look:setLook, notify:setNotify, texts:setTexts, rules:setRules, data:setData}[ui.setTab]();
   return pageHead('settings','Настрой приложение под себя. Изменения применяются сразу.')
     + `<div class="filters">${tabs.map(([k,l])=>`<button class="${ui.setTab===k?'on':''}" data-a="setTab" data-v="${k}">${l}</button>`).join('')}</div>` + body;
 }
@@ -1168,6 +1192,36 @@ function setLook(){
       ${Object.entries(PRESETS).map(([k,p])=>`<button class="preset" data-a="preset" data-v="${k}" style="background:${p.c.panel};color:${p.c.ink}">
         <span>${['bg','accent','ok','xp','gold'].map(v=>`<i style="background:${p.c[v]}"></i>`).join('')}</span>${p.n}</button>`).join('')}</div></div>
     <div class="cgrid">${CVARS.map(([k,l])=>`<label class="crow"><input type="color" data-set="custom.colors.${slot}.${k}" value="${col[k]}"> ${l}</label>`).join('')}</div>
+  </section>`;
+}
+function setNotify(){
+  const n = S.notify;
+  const mini = `<section class="px stack"><h2>Мини-окно</h2>
+    <p style="margin:0">Компактное окно с квестами на сегодня: держи его в углу экрана. В Windows его можно закрепить поверх остальных окон через PowerToys → Always On Top (Win+Ctrl+T).</p>
+    <div><button class="btn" data-a="openMini">Открыть мини-окно</button></div>
+    <small class="muted">У установленного приложения мини-окно есть и в меню по правому клику на иконке в панели задач.</small></section>`;
+  if (!user) return mini + `<section class="px"><p class="muted" style="margin:0">Пуш-уведомления работают только со входом через облако.</p></section>`;
+  if (!CONFIG.VAPID_PUBLIC_KEY) return mini + setupHelper();
+  const ios = /iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone;
+  const tm = (on,tk,label) => `<label><span class="chk-l" style="padding:0;color:var(--ink);font-size:1.15em"><input type="checkbox" data-set="notify.${on}" ${n[on]?'checked':''}> ${label}</span><input class="inp" type="time" data-set="notify.${tk}" value="${n[tk]}"></label>`;
+  return mini + `<section class="px stack"><h2>Напоминания</h2>
+    <label class="chk-l"><input type="checkbox" data-set="notify.enabled" ${n.enabled?'checked':''}> Присылать напоминания</label>
+    <div class="tgrid">${tm('morningOn','morning','Утренняя сводка')}${tm('eveningOn','evening','Вечернее предупреждение')}</div>
+    <small class="muted">Утром: квесты на день и близкие дедлайны. Вечером: если остались невыполненные ежедневные. Время для отдельного ежедневного квеста или поручения задаётся в его карточке.</small>
+  </section>
+  <section class="px stack"><h2>Это устройство</h2>
+    <p style="margin:0" id="pushstate">Проверяю…</p>
+    ${ios?'<p class="muted" style="margin:0">На iPhone уведомления работают только из приложения, добавленного на экран «Домой».</p>':''}
+    <div class="row" id="pushbtns"></div></section>`;
+}
+function setupHelper(){
+  const k = ui.keys;
+  const blk = (title, text, id) => `<div><b>${title}</b><div class="codeb">${esc(text)}</div><button class="btn sec" data-a="copy" data-v="${id}">Копировать</button></div>`;
+  return `<section class="px stack"><h2>Настройка пуш-уведомлений</h2>
+    <p style="margin:0">Ключи генерируются один раз. Пошаговая инструкция в README.md, раздел «Уведомления».</p>
+    ${k ? blk('1. Строка для config.js', k.cfg, 'cfg') + blk('2. Секрет VAPID_KEYS', k.vapid, 'vapid') + blk('3. Секрет CRON_SECRET', k.cron, 'cron') + blk('4. SQL для расписания', k.sql, 'sql')
+        + '<p class="muted" style="margin:0">Скопируй всё сейчас: после перезагрузки страницы эти ключи пропадут. Если не успел, просто сгенерируй новые и используй их везде.</p>'
+      : '<div><button class="btn" data-a="genKeys">Сгенерировать ключи</button></div>'}
   </section>`;
 }
 function setTexts(){
@@ -1217,12 +1271,113 @@ function setPath(path, val){
   if (ps[1]==='labels' && val==='') delete o[k]; else o[k] = val;
 }
 
+/* ===================== ПУШ-УВЕДОМЛЕНИЯ (клиент) ===================== */
+const b64u = buf => { const b = new Uint8Array(buf); let s = ''; for (const x of b) s += String.fromCharCode(x); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); };
+const unb64u = s => { s = s.replace(/-/g,'+').replace(/_/g,'/'); while (s.length%4) s += '='; return Uint8Array.from(atob(s), c=>c.charCodeAt(0)); };
+let swReg = null;
+async function initSW(){
+  if (!('serviceWorker' in navigator) || location.protocol!=='https:') return;
+  try { swReg = await navigator.serviceWorker.register('sw.js'); } catch(e){}
+}
+async function deviceSub(){
+  if (!('serviceWorker' in navigator)) return null;
+  swReg = swReg || await navigator.serviceWorker.getRegistration();
+  return swReg ? swReg.pushManager.getSubscription() : null;
+}
+async function refreshPushState(){
+  const el = $('#pushstate'), bt = $('#pushbtns'); if (!el) return;
+  if (location.protocol!=='https:'){ el.textContent = 'Уведомления работают только на сайте (https), а не из локального файла.'; return; }
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){ el.textContent = 'Этот браузер не поддерживает пуш-уведомления.'; return; }
+  const sub = await deviceSub();
+  el.textContent = sub ? 'Подключено: напоминания будут приходить на это устройство.'
+    : Notification.permission==='denied' ? 'Уведомления заблокированы для этого сайта в настройках браузера. Разреши их и обнови страницу.' : 'Это устройство не подключено.';
+  bt.innerHTML = sub ? '<button class="btn sec" data-a="pushTest">Тестовое уведомление</button><button class="btn sec" data-a="pushOff">Отключить</button>'
+    : '<button class="btn" data-a="pushOn">Подключить это устройство</button>';
+}
+async function pushOn(){
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm!=='granted') return alert('Нужно разрешить уведомления для этого сайта.');
+    swReg = swReg || await navigator.serviceWorker.register('sw.js');
+    await navigator.serviceWorker.ready;
+    let sub = await swReg.pushManager.getSubscription();
+    if (!sub) sub = await swReg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:unb64u(CONFIG.VAPID_PUBLIC_KEY)});
+    const j = sub.toJSON();
+    const {error} = await sb.from('push_subs').upsert({endpoint:j.endpoint, user_id:user.id, sub:j, device:navigator.userAgent.slice(0,150)});
+    if (error) return alert('Не удалось сохранить подписку: '+error.message);
+    if (!S.notify.enabled){ S.notify.enabled = true; save(); }
+    if (ui.view==='settings') render();
+  } catch(e){ alert('Не получилось подключить уведомления: '+e.message); }
+}
+async function pushOff(){
+  const sub = await deviceSub();
+  if (sub){ await sb.from('push_subs').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); }
+  refreshPushState();
+}
+async function pushTest(){
+  const {data} = await sb.auth.getSession();
+  try {
+    const r = await fetch(CONFIG.SUPABASE_URL+'/functions/v1/remind', {method:'POST',
+      headers:{'Content-Type':'application/json', Authorization:'Bearer '+data.session.access_token, apikey:CONFIG.SUPABASE_KEY}, body:JSON.stringify({test:true})});
+    const j = await r.json().catch(()=>({}));
+    alert(r.ok ? (j.sent ? `Отправлено на устройств: ${j.sent}. Уведомление придёт через пару секунд.` : 'Не найдено подключённых устройств.') : 'Ошибка функции remind: '+(j.error||j.msg||r.status));
+  } catch(e){ alert('Функция remind недоступна. Проверь, что она создана в Supabase. ('+e.message+')'); }
+}
+async function genKeys(){
+  const kp = await crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-256'}, true, ['sign','verify']);
+  const pub = b64u(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const j = await crypto.subtle.exportKey('jwk', kp.privateKey);
+  const cron = b64u(crypto.getRandomValues(new Uint8Array(24)));
+  const url = CONFIG.SUPABASE_URL || 'https://ТВОЙ-ПРОЕКТ.supabase.co';
+  ui.keys = {
+    cfg: `VAPID_PUBLIC_KEY: '${pub}',`,
+    vapid: JSON.stringify({publicKey:pub, privateJwk:{kty:j.kty, crv:j.crv, x:j.x, y:j.y, d:j.d}}),
+    cron,
+    sql: `create extension if not exists pg_cron with schema pg_catalog;
+create extension if not exists pg_net with schema extensions;
+
+select cron.unschedule('questlog-remind') where exists (select 1 from cron.job where jobname = 'questlog-remind');
+
+select cron.schedule('questlog-remind', '*/5 * * * *', $job$
+  select net.http_post(
+    url := '${url}/functions/v1/remind',
+    headers := '{"Content-Type":"application/json","x-cron-secret":"${cron}"}'::jsonb,
+    body := '{}'::jsonb
+  );
+$job$);`,
+  };
+  render();
+}
+
+/* ===================== МИНИ-ОКНО ===================== */
+function vMini(){
+  const t = today(), h = S.hero, need = xpNeed(h.level);
+  const dailies = S.quests.filter(q=>scheduled(q,t));
+  const tasks = S.tasks.filter(x=>(!x.done && x.date<=t) || (x.done && x.doneAt===t)).sort((a,b)=>(a.done-b.done) || (a.time||'99').localeCompare(b.time||'99'));
+  const weeklies = S.quests.filter(q=>q.type==='weekly' && !q.hist[weekOf(t)]);
+  const specials = S.quests.filter(q=>q.type==='special' && !q.done && !q.failed && q.deadline && daysBetween(t,q.deadline)<=2);
+  const all = dailies.length + tasks.length, done = dailies.filter(q=>q.hist[t]).length + tasks.filter(x=>x.done).length;
+  const rows = dailies.map(q=>qRow(q)).join('') + tasks.map(x=>tRow(x)).join('') + specials.map(q=>qRow(q)).join('') + weeklies.map(q=>qRow(q)).join('');
+  return `<div class="px mhead"><div class="avatar ${getSpr(S.custom.avatar)?'checker':''}">${heroAvatar(44)}</div>
+      <div class="hinfo"><div class="hname"><span>${esc(heroName())} · Ур. ${h.level}</span><i class="sdot ${ui.sync.st}" id="sdot" title="${esc(syncText())}"></i></div>
+        <div class="bar hp"><i style="width:${Math.max(0,h.hp/h.maxHp*100)}%"></i><b><span>${esc(L('cur_hp'))}</span><span>${Math.max(0,h.hp)}/${h.maxHp}</span></b></div>
+        <div class="bar xp"><i style="width:${Math.min(100,h.xp/need*100)}%"></i><b><span>${esc(L('cur_xp'))}</span><span>${h.xp}/${need}</span></b></div></div>
+      <div class="goldline">${icon('coin',14)} ${h.gold}</div></div>
+    <section class="px"><div class="mtitle"><h2>${esc(L('title_today'))}</h2><span class="cnt">${done}/${all}</span></div>
+      <div class="list">${rows || '<div class="empty">На сегодня квестов нет</div>'}</div>
+      <form class="quick" data-f="quick"><input class="inp" name="title" placeholder="Новое поручение…" autocomplete="off"><button class="btn sec" type="submit">+</button></form></section>
+    <div class="row" style="justify-content:center"><button class="btn sec" data-a="openMain">Открыть приложение</button></div>`;
+}
+
 /* ===================== РЕНДЕР ===================== */
 const VIEWS = {today:vToday, quests:vQuests, plan:vPlan, notes:vNotes, stats:vStats, shop:vShop, studio:vStudio, settings:vSettings};
 let renderedDay = today();
 function render(){
-  applyStyle(); renderChrome();
+  applyStyle();
+  if (MINI){ document.documentElement.classList.add('minimode'); $('#main').innerHTML = vMini(); renderedDay = today(); return; }
+  renderChrome();
   $('#main').innerHTML = VIEWS[ui.view]();
+  if (ui.view==='settings' && ui.setTab==='notify') refreshPushState();
   if (ui.view==='studio'){ initCanvas(); initPicker(); }
   renderedDay = today();
 }
@@ -1253,7 +1408,9 @@ function questForm(item, kind, presetDate){
       <div class="fld"><span class="lb">Сложность</span><div class="segs">${dOpts}</div></div>
       <div class="fld f-days"><span class="lb">Дни недели</span><div class="segs">${wOpts}</div></div>
       <div class="fld f-deadline"><label>Дедлайн (необязательно)</label><input class="inp" type="date" name="deadline" value="${item&&item.deadline||''}"></div>
-      <div class="fld f-date"><label>Дата</label><input class="inp" type="date" name="date" value="${item&&item.date||presetDate||today()}"></div>
+      <div class="fld f-date"><label>Дата и время напоминания (время необязательно)</label><div class="row" style="flex-wrap:nowrap">
+        <input class="inp" type="date" name="date" value="${item&&item.date||presetDate||today()}"><input class="inp" type="time" name="time" value="${item&&item.time||''}" style="max-width:150px"></div></div>
+      <div class="fld f-remind"><label>Напомнить в (необязательно)</label><input class="inp" type="time" name="remind" value="${item&&item.remind||''}" style="max-width:150px"></div>
       ${iconPicker(item&&item.icon)}
       <div class="preview" id="pv"></div>
       ${formActs(item, isTask?'task':'quest')}
@@ -1274,12 +1431,12 @@ function saveQuestForm(f){
   if (type==='task'){
     let x = id && S.tasks.find(a=>a.id===id);
     if (!x){ x = {id:uid(), done:false, created:t}; S.tasks.push(x); }
-    Object.assign(x, {title, diff, icon:ic, date:fd.get('date') || t});
+    Object.assign(x, {title, diff, icon:ic, date:fd.get('date') || t, time:fd.get('time') || null});
   } else {
     let q = id && S.quests.find(a=>a.id===id);
     if (!q){ q = {id:uid(), type, hist:{}, best:0, created:t, done:false}; S.quests.push(q); }
     Object.assign(q, {title, diff, icon:ic});
-    if (type==='daily'){ q.days = fd.getAll('days').map(Number); if (!q.days.length) q.days = [0,1,2,3,4,5,6]; }
+    if (type==='daily'){ q.days = fd.getAll('days').map(Number); if (!q.days.length) q.days = [0,1,2,3,4,5,6]; q.remind = fd.get('remind') || null; }
     if (type==='special'){ q.deadline = fd.get('deadline') || null; if (q.failed && (!q.deadline || q.deadline>=t)) q.failed = false; }
   }
   save(); closeModal(); render();
@@ -1396,6 +1553,11 @@ const A = {
   },
   reset:()=>{ if (confirm('Стереть весь прогресс, рисунки и настройки?' + (user?' Данные в облаке тоже будут перезаписаны.':''))){ S = seed(); ui.ed = null; save(); render(); } },
   syncNow:()=>sync(),
+  openMini:()=>{ window.open('./?mini','questlog-mini','popup,width=400,height=640'); },
+  openMain:()=>{ window.open('./','questlog-main'); },
+  pushOn:()=>pushOn(), pushOff:()=>pushOff(), pushTest:()=>pushTest(), genKeys:()=>genKeys(),
+  copy:el=>{ const v = ui.keys && ui.keys[el.dataset.v]; if (!v) return;
+    (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(()=>fx('<span>Скопировано</span>'), ()=>alert('Не удалось скопировать: выдели текст вручную')); },
   logout:async()=>{ if (!confirm('Выйти из аккаунта?')) return; if (dirty) await push(); await sb.auth.signOut(); location.reload(); },
   /* мастерская */
   tool:el=>{ ui.tool = el.dataset.v; refreshStudio(); },
@@ -1481,6 +1643,11 @@ document.addEventListener('visibilitychange', () => {
   else { tick(); sync(); }
 });
 addEventListener('online', () => sync());
+addEventListener('storage', e => {
+  if (!S || e.key!==LS || !e.newValue) return;
+  try { const s = JSON.parse(e.newValue); if ((s._ts||0) > (S._ts||0)){ S = normalize(s); sprCache.clear(); render(); } } catch(err){}
+});
+setInterval(() => { if (!document.hidden && user) sync(); }, 180000);
 setInterval(tick, 60000);
 
 /* ===================== СТАРТ ===================== */
