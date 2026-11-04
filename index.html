@@ -107,6 +107,14 @@ nav.tabs .more{display:none}
 textarea.inp{resize:vertical;min-height:220px;line-height:1.5}
 select.inp{cursor:pointer}
 
+/* steps (checklist) */
+.steps{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.step{display:flex;align-items:center;gap:8px;border:0;background:none;padding:2px 0;cursor:pointer;text-align:left;font-size:.92em;color:var(--ink)}
+.step .sbox{width:18px;height:18px;flex:none;display:grid;place-items:center;background:var(--panel);box-shadow:inset 0 0 0 2px var(--line)}
+.step.on .sbox{background:var(--ok)}
+.step.on .stx{text-decoration:line-through;color:var(--muted)}
+.steprow{display:flex;gap:6px;margin-bottom:6px;align-items:center}
+
 /* filters / tabs */
 .filters{display:flex;flex-wrap:wrap;gap:6px}
 .filters button{border:0;cursor:pointer;padding:7px 10px;background:var(--panel2);font-size:.9em;box-shadow:inset 0 0 0 2px var(--line)}
@@ -385,7 +393,6 @@ const TEXT_GROUPS = [
   ['Заголовки экранов', ['title_today','title_quests','title_plan','title_notes','title_stats','title_shop','title_studio','title_settings']],
   ['Секции', ['sec_daily','sec_tasks','sec_weekly','sec_special','sec_activity','sec_streaks','sec_ach']],
   ['Типы квестов', ['type_daily','type_weekly','type_special','type_task']],
-  ['Сложность', ['diff_1','diff_2','diff_3','diff_4']],
   ['Звания (ур. 1, 3, 5, 10, 15, 20)', ['rank_0','rank_1','rank_2','rank_3','rank_4','rank_5']],
   ['Достижения', Object.keys(DEF_L).filter(k=>k.startsWith('ach_'))],
 ];
@@ -495,7 +502,7 @@ const iconFor = (item,type) => getSpr(item && item.icon) ? item.icon : (getSpr(S
 const heroAvatar = size => getSpr(S.custom.avatar) ? sprImg(S.custom.avatar,size) : heroSvg(S.hero.level,size);
 
 /* ===================== СОСТОЯНИЕ ===================== */
-const defRules = () => ({diff:[{xp:10,gold:5,dmg:5},{xp:20,gold:10,dmg:8},{xp:35,gold:18,dmg:12},{xp:60,gold:30,dmg:18}],
+const defRules = () => ({diff:[{n:'Легко',xp:10,gold:5,dmg:5},{n:'Норм',xp:20,gold:10,dmg:8},{n:'Сложно',xp:35,gold:18,dmg:12},{n:'Эпик',xp:60,gold:30,dmg:18},{n:'Пустяк',xp:3,gold:1,dmg:2}], trivAdded:true,
   mult:{daily:1,weekly:3,special:5,task:0.5}, streakStep:5, streakMax:10, xpBase:60, xpStep:40, hpPerLevel:5});
 const defLook = () => ({colors:{light:clone(PRESETS.parchment.c), dark:clone(PRESETS.dungeon.c)}, fontHead:'Press Start 2P', fontBody:'Rubik', size:17, upper:true, gridBg:true});
 const defCustom = () => Object.assign(defLook(), {labels:{}, rules:defRules(), avatar:null, typeIcons:{}, recent:['#1b1209','#ffffff','#f1c08d','#5a3418','#e04848','#29adff','#00e436','#ffec27']});
@@ -530,6 +537,9 @@ function normalize(s){
   out.custom = Object.assign(d, c);
   out.custom.colors = {light:Object.assign(clone(PRESETS.parchment.c),(c.colors||{}).light), dark:Object.assign(clone(PRESETS.dungeon.c),(c.colors||{}).dark)};
   out.custom.rules = Object.assign(defRules(), c.rules||{});
+  { const r = out.custom.rules;
+    r.diff = (r.diff||[]).map((d,i)=>Object.assign({}, d, {n: d.n || (c.labels||{})['diff_'+(i+1)] || DEF_L['diff_'+(i+1)] || ('Уровень '+(i+1))}));
+    if (!(c.rules||{}).trivAdded && c.rules){ r.diff.push({n:'Пустяк',xp:3,gold:1,dmg:2}); r.trivAdded = true; } }
   out.custom.labels = c.labels || {}; out.custom.typeIcons = c.typeIcons || {};
   out.settings = Object.assign({theme:'auto',penalty:true}, s.settings||{});
   out.notify = Object.assign(defNotify(), s.notify||{});
@@ -641,7 +651,8 @@ const ui = {view:'today', filter:'all', week:0, month:0, planMode:'week', selDay
 
 /* ===================== ПРАВИЛА ===================== */
 const R = () => S.custom.rules;
-const DIFF = i => Object.assign({n:L('diff_'+i)}, R().diff[(i||1)-1]);
+const DIFF = i => { const d = R().diff[(i||1)-1] || R().diff[0] || {xp:0,gold:0,dmg:0}; return Object.assign({}, d, {n: d.n || L('diff_'+i)}); };
+const diffOpts = () => R().diff.map((d,i)=>({id:i+1, d})).filter(o=>!o.d.del).sort((a,b)=>(a.d.xp-b.d.xp) || (a.id-b.id));
 const TYPES = ['daily','weekly','special','task'];
 const WD = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
 const xpNeed = l => Math.max(10, R().xpBase + R().xpStep*l);
@@ -690,7 +701,7 @@ function undo(r){
   S.stats.done = Math.max(0,S.stats.done-1); S.stats.xp = Math.max(0,S.stats.xp-r.xp); S.stats.gold = Math.max(0,S.stats.gold-r.gold);
   if (S.daylog[r.on]) S.daylog[r.on]--;
 }
-function toggleQuest(id){
+function toggleQuest(id, fromStep){
   const q = S.quests.find(x=>x.id===id); if (!q) return;
   const t = today();
   if (q.type==='special'){
@@ -701,14 +712,34 @@ function toggleQuest(id){
     if (q.hist[k]){ undo(q.hist[k]); delete q.hist[k]; }
     else { const r = rewardFor(q,q.type); q.hist[k]=r; gain(r); q.best = Math.max(q.best||0, streak(q)); }
   }
+  if (!fromStep && hasSteps(q)) q.prog = {[stepPk(q,'quest')]: questStatus(q).done ? q.steps.map(st=>st.id) : []};
   commit();
 }
-function toggleTask(id){
+function toggleTask(id, fromStep){
   const x = S.tasks.find(t=>t.id===id); if (!x) return;
   if (x.done){ undo(x.doneReward); x.done=false; x.doneAt=null; x.doneReward=null; }
   else { const r = rewardFor(x,'task'); x.done=true; x.doneAt=today(); x.doneReward=r; gain(r); }
+  if (!fromStep && hasSteps(x)) x.prog = {once: x.done ? x.steps.map(st=>st.id) : []};
   commit();
 }
+const hasSteps = x => Array.isArray(x.steps) && x.steps.length>0;
+const stepPk = (x,kind) => (kind==='task' || x.type==='special') ? 'once' : x.type==='weekly' ? weekOf(today()) : today();
+function stepsDone(x,kind){ if (!hasSteps(x)) return []; const a = (x.prog||{})[stepPk(x,kind)] || []; return x.steps.filter(st=>a.includes(st.id)).map(st=>st.id); }
+function toggleStep(kind,id,sid){
+  const x = kind==='task' ? S.tasks.find(t=>t.id===id) : S.quests.find(q=>q.id===id); if (!x || !hasSteps(x)) return;
+  const cur = new Set(stepsDone(x,kind)); cur.has(sid) ? cur.delete(sid) : cur.add(sid);
+  x.prog = {[stepPk(x,kind)]: [...cur]};
+  const all = x.steps.every(st=>cur.has(st.id)), done = kind==='task' ? !!x.done : questStatus(x).done;
+  if (all!==done) return kind==='task' ? toggleTask(id,true) : toggleQuest(id,true);
+  save(); render();
+}
+function stepsHtml(x,kind,done){
+  if (!hasSteps(x) || done) return '';
+  const d = stepsDone(x,kind);
+  return `<div class="steps">${x.steps.map(st=>{ const on = d.includes(st.id);
+    return `<button class="step ${on?'on':''}" data-a="step" data-k="${kind}" data-id="${x.id}" data-s="${st.id}"><span class="sbox">${on?icon('check',12):''}</span><span class="stx">${esc(st.t)}</span></button>`; }).join('')}</div>`;
+}
+const stepChip = (x,kind) => hasSteps(x) ? `<span class="chip">☑ ${stepsDone(x,kind).length}/${x.steps.length}</span>` : '';
 function commit(){ save(); render(); if (pendingLevelUp){ pendingLevelUp=false; showLevelUp(); } }
 
 function processDays(){
@@ -813,9 +844,10 @@ function qRow(q, opts={}){
   if (q.type==='daily' && opts.showType) chips.push(`<span class="chip">${daysLabel(q.days)}</span>`);
   if (q.type==='special') chips.push(deadlineChip(q));
   if (q.type==='daily' && q.remind) chips.push(`<span class="chip">⏰ ${q.remind}</span>`);
+  if (hasSteps(q)) chips.push(stepChip(q,'quest'));
   return `<div class="qrow t-${q.type} ${done?'done':''} ${q.failed&&!done?'failed':''}">
     ${chk(done,'toggle',q.id)}${iconCell(q,q.type)}
-    <div class="qb"><div class="qt">${esc(q.title)}</div><div class="qm">${chips.join('')}</div></div>
+    <div class="qb"><div class="qt">${esc(q.title)}</div><div class="qm">${chips.join('')}</div>${stepsHtml(q,'quest',done)}</div>
     <div class="rw">${rewardHtml(done ? r : rewardFor(q,q.type))}</div>
     <button class="ib" data-a="edit" data-id="${q.id}" title="Изменить">✎</button></div>`;
 }
@@ -826,9 +858,10 @@ function tRow(x, opts={}){
   if (!x.done && x.date<t) chips.push(`<span class="chip warn">перенесено с ${fmtDate(x.date)}</span>`);
   else if (!x.done && x.date>t) chips.push(`<span class="chip">${fmtDate(x.date,{weekday:'short',day:'numeric',month:'short'})}</span>`);
   if (x.time && !x.done) chips.push(`<span class="chip">⏰ ${x.time}</span>`);
+  if (hasSteps(x)) chips.push(stepChip(x,'task'));
   return `<div class="qrow t-task ${x.done?'done':''}">
     ${chk(x.done,'toggleTask',x.id)}${iconCell(x,'task')}
-    <div class="qb"><div class="qt">${esc(x.title)}</div><div class="qm">${chips.join('')}</div></div>
+    <div class="qb"><div class="qt">${esc(x.title)}</div><div class="qm">${chips.join('')}</div>${stepsHtml(x,'task',x.done)}</div>
     <div class="rw">${rewardHtml(x.done?x.doneReward:rewardFor(x,'task'))}</div>
     <button class="ib" data-a="editTask" data-id="${x.id}" title="Изменить">✎</button></div>`;
 }
@@ -872,7 +905,7 @@ function vQuests(){
     + `<div class="filters">${[['all','Все'],...TYPES.map(t=>[t,L('type_'+t)])].map(([k,l])=>`<button class="${f===k?'on':''}" data-a="filter" data-v="${k}">${esc(l)}</button>`).join('')}</div>
     <section class="px"><div class="list">${rows || '<div class="empty">Здесь пока нет квестов. Создай первый!</div>'}</div></section>
     <section class="px"><h3 class="muted">Как считаются награды</h3><div style="font-size:.9em;margin-top:10px">
-      Базовая награда по сложности: ${[1,2,3,4].map(i=>`${esc(DIFF(i).n)} ${DIFF(i).xp}`).join(', ')} ${esc(L('cur_xp'))}.
+      Базовая награда по сложности: ${diffOpts().map(({d})=>`${esc(d.n)} ${d.xp}`).join(', ')} ${esc(L('cur_xp'))}.
       Множители: ${TYPES.map(t=>`${esc(L('type_'+t))} ×${m[t]}`).join(', ')}. Каждый день серии +${R().streakStep}% (до ${R().streakMax} дней).
       Всё это меняется в настройках, во вкладке «Правила».</div></section>`;
 }
@@ -1235,8 +1268,10 @@ function setRules(){
   const r = R(); const num = (p,v,step=1) => `<input class="inp" type="number" step="${step}" min="0" data-set="${p}" value="${v}">`;
   return `<section class="px stack">
     <h2>Награды и урон по сложности</h2>
-    <table class="st rtable"><tr><th>Сложность</th><th>${esc(L('cur_xp'))}</th><th>${esc(L('cur_gold'))}</th><th>Урон</th></tr>
-      ${r.diff.map((d,i)=>`<tr><td>${esc(DIFF(i+1).n)}</td><td>${num(`custom.rules.diff.${i}.xp`,d.xp)}</td><td>${num(`custom.rules.diff.${i}.gold`,d.gold)}</td><td>${num(`custom.rules.diff.${i}.dmg`,d.dmg)}</td></tr>`).join('')}</table>
+    <div style="overflow-x:auto"><table class="st rtable"><tr><th>Название</th><th>${esc(L('cur_xp'))}</th><th>${esc(L('cur_gold'))}</th><th>Урон</th><th></th></tr>
+      ${diffOpts().map(({id,d})=>{ const i = id-1; return `<tr><td><input class="inp" data-set="custom.rules.diff.${i}.n" value="${esc(d.n)}" maxlength="20" style="width:140px"></td><td>${num(`custom.rules.diff.${i}.xp`,d.xp)}</td><td>${num(`custom.rules.diff.${i}.gold`,d.gold)}</td><td>${num(`custom.rules.diff.${i}.dmg`,d.dmg)}</td><td><button class="ib" data-a="delDiff" data-v="${i}" title="Удалить">✕</button></td></tr>`; }).join('')}</table></div>
+    <div><button class="btn sec" data-a="addDiff">+ Уровень сложности</button></div>
+    <small class="muted">Уровни упорядочены по опыту. Удалённый уровень пропадает из выбора, но у уже созданных квестов награда остаётся прежней.</small>
     <h2>Множители по типу</h2>
     <div class="tgrid">${TYPES.map(t=>`<label>${esc(L('type_'+t))}${num('custom.rules.mult.'+t,r.mult[t],0.1)}</label>`).join('')}</div>
     <h2>Серии и уровни</h2>
@@ -1272,6 +1307,7 @@ function setPath(path, val){
 }
 
 /* ===================== ПУШ-УВЕДОМЛЕНИЯ (клиент) ===================== */
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
 const b64u = buf => { const b = new Uint8Array(buf); let s = ''; for (const x of b) s += String.fromCharCode(x); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); };
 const unb64u = s => { s = s.replace(/-/g,'+').replace(/_/g,'/'); while (s.length%4) s += '='; return Uint8Array.from(atob(s), c=>c.charCodeAt(0)); };
 let swReg = null;
@@ -1291,13 +1327,16 @@ async function refreshPushState(){
   const sub = await deviceSub();
   el.textContent = sub ? 'Подключено: напоминания будут приходить на это устройство.'
     : Notification.permission==='denied' ? 'Уведомления заблокированы для этого сайта в настройках браузера. Разреши их и обнови страницу.' : 'Это устройство не подключено.';
+  el.textContent += ` (разрешение: ${Notification.permission}, режим приложения: ${isStandalone()?'да':'нет'})`;
   bt.innerHTML = sub ? '<button class="btn sec" data-a="pushTest">Тестовое уведомление</button><button class="btn sec" data-a="pushOff">Отключить</button>'
     : '<button class="btn" data-a="pushOn">Подключить это устройство</button>';
 }
 async function pushOn(){
   try {
+    const before = Notification.permission;
     const perm = await Notification.requestPermission();
-    if (perm!=='granted') return alert('Нужно разрешить уведомления для этого сайта.');
+    if (perm!=='granted') return alert(`Система не дала разрешение на уведомления.\n\nДо запроса: ${before}, после: ${perm}\nРежим приложения: ${isStandalone()?'да':'нет'}\n\n`
+      + (before==='default' && perm==='denied' ? 'Окно с вопросом не появилось: запрос заблокирован системой. На iPhone проверь Настройки → Приложения → Safari → Дополнения → Feature Flags: должны быть включены Notifications и Push API.' : 'Разреши уведомления для этого сайта в настройках.'));
     swReg = swReg || await navigator.serviceWorker.register('sw.js');
     await navigator.serviceWorker.ready;
     let sub = await swReg.pushManager.getSubscription();
@@ -1397,15 +1436,20 @@ const formActs = (item,k) => `<div class="acts">${item?`<button type="button" cl
 function questForm(item, kind, presetDate){
   const isTask = kind==='task';
   const type = isTask ? 'task' : (item ? item.type : 'daily');
-  const editing = !!item, diff = item ? item.diff||1 : 2, days = item && item.days ? item.days : [0,1,2,3,4,5,6];
+  const opts = diffOpts();
+  const editing = !!item, diff = item ? item.diff||1 : (opts.find(o=>o.id===2) ? 2 : opts[0].id), days = item && item.days ? item.days : [0,1,2,3,4,5,6];
+  if (item && !opts.find(o=>o.id===diff)) opts.push({id:diff, d:DIFF(diff)});
   const tOpts = TYPES.map(k=>`<label class="seg"><input type="radio" name="type" value="${k}" ${k===type?'checked':''} ${editing&&k!==type?'disabled':''}><span>${esc(L('type_'+k))}</span></label>`).join('');
-  const dOpts = [1,2,3,4].map(i=>`<label class="seg"><input type="radio" name="diff" value="${i}" ${i===diff?'checked':''}><span>${esc(DIFF(i).n)}</span></label>`).join('');
+  const dOpts = opts.map(({id,d})=>`<label class="seg"><input type="radio" name="diff" value="${id}" ${id===diff?'checked':''}><span>${esc(d.n)}</span></label>`).join('');
   const wOpts = WD.map((w,i)=>`<label class="seg"><input type="checkbox" name="days" value="${i}" ${days.includes(i)?'checked':''}><span>${w}</span></label>`).join('');
   openModal(`<h2>${editing?'Изменить':'Новый квест'}</h2>
     <form data-f="quest" data-type="${type}" data-id="${item?item.id:''}">
       <div class="fld"><label>Название</label><input class="inp" name="title" value="${esc(item?item.title:'')}" placeholder="Например: медитация 10 минут" required maxlength="120" autocomplete="off"></div>
       <div class="fld"><span class="lb">Тип</span><div class="segs">${tOpts}</div></div>
       <div class="fld"><span class="lb">Сложность</span><div class="segs">${dOpts}</div></div>
+      <div class="fld"><span class="lb">Условия (необязательно)</span><div id="steps">${(item&&item.steps||[]).map(st=>stepRow(st)).join('')}</div>
+        <div><button type="button" class="btn sec" data-a="addStep">+ Условие</button></div>
+        <small class="muted">Квест засчитается, когда будут отмечены все условия.</small></div>
       <div class="fld f-days"><span class="lb">Дни недели</span><div class="segs">${wOpts}</div></div>
       <div class="fld f-deadline"><label>Дедлайн (необязательно)</label><input class="inp" type="date" name="deadline" value="${item&&item.deadline||''}"></div>
       <div class="fld f-date"><label>Дата и время напоминания (время необязательно)</label><div class="row" style="flex-wrap:nowrap">
@@ -1417,6 +1461,7 @@ function questForm(item, kind, presetDate){
     </form>`);
   updatePreview();
 }
+const stepRow = st => `<div class="steprow"><input class="inp" data-step="${st?st.id:''}" value="${esc(st?st.t:'')}" placeholder="Например: почистить зубы" maxlength="80" autocomplete="off"><button type="button" class="ib" data-a="delStep" title="Убрать">✕</button></div>`;
 function updatePreview(){
   const f = $('#modal form[data-f=quest]'); if (!f) return;
   const fd = new FormData(f); const type = fd.get('type') || f.dataset.type; const diff = +fd.get('diff')||1;
@@ -1428,14 +1473,15 @@ function saveQuestForm(f){
   const fd = new FormData(f);
   const type = fd.get('type') || f.dataset.type; const title = String(fd.get('title')||'').trim(); if (!title) return;
   const diff = +fd.get('diff')||1, id = f.dataset.id, t = today(), ic = fd.get('icon') || null;
+  const steps = [...f.querySelectorAll('#steps input')].map(i=>({id:i.dataset.step||uid(), t:i.value.trim()})).filter(st=>st.t);
   if (type==='task'){
     let x = id && S.tasks.find(a=>a.id===id);
     if (!x){ x = {id:uid(), done:false, created:t}; S.tasks.push(x); }
-    Object.assign(x, {title, diff, icon:ic, date:fd.get('date') || t, time:fd.get('time') || null});
+    Object.assign(x, {title, diff, icon:ic, date:fd.get('date') || t, time:fd.get('time') || null, steps});
   } else {
     let q = id && S.quests.find(a=>a.id===id);
     if (!q){ q = {id:uid(), type, hist:{}, best:0, created:t, done:false}; S.quests.push(q); }
-    Object.assign(q, {title, diff, icon:ic});
+    Object.assign(q, {title, diff, icon:ic, steps});
     if (type==='daily'){ q.days = fd.getAll('days').map(Number); if (!q.days.length) q.days = [0,1,2,3,4,5,6]; q.remind = fd.get('remind') || null; }
     if (type==='special'){ q.deadline = fd.get('deadline') || null; if (q.failed && (!q.deadline || q.deadline>=t)) q.failed = false; }
   }
@@ -1502,6 +1548,12 @@ const A = {
   more:()=>moreSheet(),
   toggle:el=>toggleQuest(el.dataset.id),
   toggleTask:el=>toggleTask(el.dataset.id),
+  step:el=>toggleStep(el.dataset.k, el.dataset.id, el.dataset.s),
+  addStep:()=>{ const box = $('#steps'); box.insertAdjacentHTML('beforeend', stepRow()); box.lastElementChild.querySelector('input').focus(); },
+  delStep:el=>el.closest('.steprow').remove(),
+  addDiff:()=>{ R().diff.push({n:'Новый уровень', xp:15, gold:8, dmg:5}); save(); render(); },
+  delDiff:el=>{ if (diffOpts().length<=1) return alert('Должен остаться хотя бы один уровень.');
+    const d = R().diff[+el.dataset.v]; if (!confirm(`Удалить уровень «${d.n}»?`)) return; d.del = true; save(); render(); },
   new:()=>questForm(null, ui.view==='quests'&&ui.filter==='task'?'task':'quest'),
   newTask:el=>questForm(null,'task',el.dataset.date),
   edit:el=>questForm(S.quests.find(q=>q.id===el.dataset.id),'quest'),
@@ -1632,6 +1684,7 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key==='Escape') closeModal();
+  if (e.key==='Enter' && e.target.matches && e.target.matches('#steps input')){ e.preventDefault(); A.addStep(); }
   if (ui.view==='studio' && (e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)){ e.preventDefault(); A.edUndo(); }
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyStyle);
