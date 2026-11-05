@@ -107,6 +107,25 @@ nav.tabs .more{display:none}
 textarea.inp{resize:vertical;min-height:220px;line-height:1.5}
 select.inp{cursor:pointer}
 
+/* rich text */
+.rte{display:flex;flex-direction:column}
+.rtb{display:flex;flex-wrap:wrap;gap:4px;padding:6px;background:var(--panel2);box-shadow:inset 0 0 0 3px var(--line);position:relative}
+.rtb button{min-width:32px;height:32px;border:0;background:var(--panel);color:var(--ink);cursor:pointer;box-shadow:inset 0 0 0 2px var(--line);font-size:15px;display:inline-flex;align-items:center;justify-content:center;padding:0 7px;font-family:var(--fb)}
+.rtb button.on{background:var(--ink);color:var(--panel)}
+.rtb .sep{width:2px;background:var(--line);opacity:.35;margin:3px 2px}
+.rtpop{position:absolute;top:calc(100% - 3px);left:0;right:0;z-index:5;background:var(--panel);padding:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;box-shadow:inset 0 0 0 3px var(--line)}
+.rtpop .swc{min-width:28px;width:28px;height:28px;padding:0}
+.rtpop input[type=color]{width:34px;height:30px}
+.rtx{min-height:110px;line-height:1.5;overflow-wrap:anywhere;cursor:text}
+.rtx.big{min-height:220px}
+.rtx.blank::before{content:attr(data-ph);color:var(--muted);pointer-events:none}
+.rich blockquote{margin:6px 0;padding:6px 10px 6px 12px;background:color-mix(in srgb,var(--accent) 14%,transparent);box-shadow:inset 4px 0 0 var(--accent)}
+.rich a{color:var(--xp);text-decoration:underline;cursor:pointer}
+.rtx a{color:var(--xp);text-decoration:underline}
+.qd{font-size:.85em;color:var(--muted);margin-top:5px;max-height:4.8em;overflow:hidden}
+.qd blockquote{margin:3px 0;padding:3px 8px}
+.minimode .qd{max-height:2.6em}
+
 /* drag & drop */
 .drag{flex:none;cursor:grab;touch-action:none;padding:8px 4px;margin:-8px -4px -8px -6px;opacity:.45;display:flex;align-items:center}
 .drag:hover{opacity:1}
@@ -195,7 +214,7 @@ table.st td.n{font-family:var(--fh);font-size:calc(10px*var(--hs));text-align:ri
 .note:hover{background:var(--panel2)}
 .note .nh{display:flex;gap:8px;align-items:center;font-weight:600}
 .note .nh img{width:24px;height:24px}
-.note .nb{white-space:pre-wrap;font-size:.88em;max-height:9.5em;overflow:hidden;overflow-wrap:anywhere}
+.note .nb{font-size:.88em;max-height:9.5em;overflow:hidden;overflow-wrap:anywhere}
 .note .nd{font-size:.75em;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
 
 /* studio */
@@ -854,7 +873,7 @@ function qRow(q, opts={}){
   if (hasSteps(q)) chips.push(stepChip(q,'quest'));
   return `<div class="qrow t-${q.type} ${done?'done':''} ${q.failed&&!done?'failed':''}" data-id="${q.id}" data-k="quest" data-g="q-${q.type}">
     <span class="drag" title="Перетащить">${icon('grip',10)}</span>${chk(done,'toggle',q.id)}${iconCell(q,q.type)}
-    <div class="qb"><div class="qt">${esc(q.title)}</div><div class="qm">${chips.join('')}</div>${stepsHtml(q,'quest',done)}</div>
+    <div class="qb"><div class="qt">${esc(q.title)}</div><div class="qm">${chips.join('')}</div>${q.desc?`<div class="qd rich">${richClean(q.desc)}</div>`:''}${stepsHtml(q,'quest',done)}</div>
     <div class="rw">${rewardHtml(done ? r : rewardFor(q,q.type))}</div>
     <button class="ib" data-a="edit" data-id="${q.id}" title="Изменить">✎</button></div>`;
 }
@@ -868,7 +887,7 @@ function tRow(x, opts={}){
   if (hasSteps(x)) chips.push(stepChip(x,'task'));
   return `<div class="qrow t-task ${x.done?'done':''}" data-id="${x.id}" data-k="task" data-g="task">
     <span class="drag" title="Перетащить">${icon('grip',10)}</span>${chk(x.done,'toggleTask',x.id)}${iconCell(x,'task')}
-    <div class="qb"><div class="qt">${esc(x.title)}</div><div class="qm">${chips.join('')}</div>${stepsHtml(x,'task',x.done)}</div>
+    <div class="qb"><div class="qt">${esc(x.title)}</div><div class="qm">${chips.join('')}</div>${x.desc?`<div class="qd rich">${richClean(x.desc)}</div>`:''}${stepsHtml(x,'task',x.done)}</div>
     <div class="rw">${rewardHtml(x.done?x.doneReward:rewardFor(x,'task'))}</div>
     <button class="ib" data-a="editTask" data-id="${x.id}" title="Изменить">✎</button></div>`;
 }
@@ -992,7 +1011,7 @@ function notesList(){
   if (!list.length) return `<div class="empty">${S.notes.length?'Ничего не найдено':'Пока нет заметок. Запиши мысли, планы или итоги дня.'}</div>`;
   return `<div class="notes">${list.map(n=>`<div class="px note" data-a="editNote" data-id="${n.id}">
     <div class="nh">${sprImg(n.icon,24)}<span>${n.pinned?'📌 ':''}${esc(n.title||'Без названия')}</span></div>
-    ${n.body?`<div class="nb">${esc(n.body.slice(0,400))}</div>`:''}
+    ${(n.body||'').trim()?`<div class="nb rich">${richClean(noteHtml(n))}</div>`:''}
     <div class="nd"><span>${n.date?'📅 '+fmtDate(n.date):''}</span><span>${n.updated?fmtDate(key(new Date(n.updated))):''}</span></div></div>`).join('')}</div>`;
 }
 function vNotes(){
@@ -1428,6 +1447,169 @@ function render(){
   renderedDay = today();
 }
 
+/* ===================== ФОРМАТИРОВАННЫЙ ТЕКСТ ===================== */
+const RT_SIZES = {'1':'.75em','2':'.85em','x-small':'.75em','small':'.85em','4':'1.2em','large':'1.2em','5':'1.45em','x-large':'1.45em','6':'1.8em','7':'1.8em','xx-large':'1.8em','xxx-large':'1.8em','.75em':'.75em','.85em':'.85em','1.2em':'1.2em','1.45em':'1.45em','1.8em':'1.8em'};
+const OKCOLOR = /^(#[0-9a-f]{3,8}|rgba?\(\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*(,\s*[\d.]+\s*)?\))$/i;
+const URLRE = /\b(?:(?:https?:\/\/|www\.)[^\s<>"']*[^\s<>"'.,;:!?)\]»]|[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|ru|org|net|io|dev|app|kg|kz|me|tv|be|gg|co|info|xyz|site|online|pro|edu|gov|ai|by|ua|uk|de|fr|jp)(?:\/[^\s<>"']*[^\s<>"'.,;:!?)\]»])?(?![\w@-]))/gi;
+const BLOCKS = {DIV:1,P:1,LI:1,H1:1,H2:1,H3:1,H4:1,H5:1,H6:1,PRE:1,TR:1};
+const INLINE = {B:'b',STRONG:'b',I:'i',EM:'i',U:'u',INS:'u',S:'s',STRIKE:'s',DEL:'s',BLOCKQUOTE:'blockquote'};
+const SKIP = /^(SCRIPT|STYLE|TEMPLATE|IFRAME|OBJECT|EMBED|SVG|MATH|NOSCRIPT|HEAD|TITLE|META|LINK|IMG|PICTURE|VIDEO|AUDIO|CANVAS|INPUT|SELECT|TEXTAREA|BUTTON|FORM)$/;
+const parseBody = h => new DOMParser().parseFromString(String(h||''), 'text/html').body;
+function safeHref(h){ h = (h||'').trim(); if (/^www\./i.test(h) || /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(\/|$)/i.test(h)) h = 'https://'+h; return /^(https?:|mailto:|tel:)/i.test(h) ? h : null; }
+function mkLink(href){ const a = document.createElement('a'); a.setAttribute('href', href); a.setAttribute('target','_blank'); a.setAttribute('rel','noopener noreferrer'); return a; }
+function richClean(html){
+  const out = document.createElement('div');
+  const addText = (to, txt, inA) => {
+    if (inA) return to.appendChild(document.createTextNode(txt));
+    let last = 0;
+    txt.replace(URLRE, (m, off) => { if (!/^(https?:|www\.)/i.test(m) && off>0 && /[@\w.\/-]/.test(txt[off-1])) return m; const h = safeHref(m); if (!h) return m;
+      if (off>last) to.appendChild(document.createTextNode(txt.slice(last,off)));
+      const a = mkLink(h); a.textContent = m; to.appendChild(a); last = off+m.length; return m; });
+    if (last<txt.length) to.appendChild(document.createTextNode(txt.slice(last)));
+  };
+  const walk = (from, to, inA) => {
+    for (const n of [...from.childNodes]){
+      if (n.nodeType===3){ addText(to, n.nodeValue, inA); continue; }
+      if (n.nodeType!==1) continue;
+      const T = n.tagName;
+      if (SKIP.test(T)) continue;
+      if (T==='BR'){ to.appendChild(document.createElement('br')); continue; }
+      let el = null, link = false;
+      if (T==='A'){ const h = safeHref(n.getAttribute('href')); if (h && !inA){ el = mkLink(h); link = true; } }
+      else if (INLINE[T]) el = document.createElement(INLINE[T]);
+      else if (BLOCKS[T]) el = document.createElement('div');
+      const cs = n.style || {}, st = [];
+      const col = (T==='FONT' ? n.getAttribute('color') : cs.color) || ''; if (OKCOLOR.test(col.trim())) st.push('color:'+col.trim());
+      const bg = (cs.backgroundColor||'').trim(); if (OKCOLOR.test(bg) && !/,\s*0\s*\)$/.test(bg)) st.push('background-color:'+bg);
+      const fs = T==='FONT' ? n.getAttribute('size') : cs.fontSize; if (fs && RT_SIZES[fs]) st.push('font-size:'+RT_SIZES[fs]);
+      if (/bold|[6-9]00/.test(cs.fontWeight||'')) st.push('font-weight:bold');
+      if (cs.fontStyle==='italic') st.push('font-style:italic');
+      const td = (cs.textDecorationLine||'')+' '+(cs.textDecoration||''), tds = [];
+      if (/underline/.test(td)) tds.push('underline'); if (/line-through/.test(td)) tds.push('line-through');
+      if (tds.length) st.push('text-decoration:'+tds.join(' '));
+      let inner = to;
+      if (el){ to.appendChild(el); inner = el; }
+      if (st.length){ const sp = document.createElement('span'); sp.setAttribute('style', st.join(';')); inner.appendChild(sp); inner = sp; }
+      walk(n, inner, inA || link);
+    }
+  };
+  walk(parseBody(html), out, false);
+  for (let i=0;i<3;i++) out.querySelectorAll('span,b,i,u,s,a').forEach(e=>{ if (!e.textContent && !e.querySelector('br')) e.remove(); });
+  return out.innerHTML;
+}
+function richText(html){
+  const b = parseBody(html);
+  b.querySelectorAll('br').forEach(x=>x.replaceWith('\n'));
+  b.querySelectorAll('div,p,li,blockquote').forEach(x=>x.append('\n'));
+  return b.textContent.replace(/ /g,' ').replace(/\n{3,}/g,'\n\n').trim();
+}
+const plainToHtml = t => richClean(esc(t||'').replace(/\n/g,'<br>'));
+const noteHtml = n => n.html ? n.html : plainToHtml(n.body||'');
+const normUrl = v => { v = (v||'').trim(); if (!v || v==='https://') return '';
+  if (/^[^\s@\/]+@[^\s@\/]+\.[^\s@\/]+$/.test(v)) return 'mailto:'+v;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) v = 'https://'+v; return safeHref(v) || ''; };
+
+function rte(key, html, ph, big){
+  const empty = !richText(html);
+  const fmt = [['bold','<b>B</b>','Жирный (Ctrl+B)'],['italic','<i>I</i>','Курсив (Ctrl+I)'],['underline','<u>U</u>','Подчёркнутый (Ctrl+U)'],['strikeThrough','<s>S</s>','Зачёркнутый']];
+  return `<div class="rte" data-rte="${key}"><div class="rtb">
+    ${fmt.map(([c,l,t])=>`<button type="button" data-rt="${c}" title="${t}">${l}</button>`).join('')}<span class="sep"></span>
+    <button type="button" data-rt="pop" data-v="size" title="Размер текста">Aa</button>
+    <button type="button" data-rt="pop" data-v="color" title="Цвет текста"><span style="box-shadow:inset 0 -3px 0 var(--hp);padding:0 2px">A</span></button>
+    <button type="button" data-rt="pop" data-v="bg" title="Цвет фона"><span style="background:var(--gold);color:#1a1206;padding:0 4px">A</span></button><span class="sep"></span>
+    <button type="button" data-rt="quote" title="Цитата">❝</button>
+    <button type="button" data-rt="link" title="Ссылка">🔗</button>
+    <button type="button" data-rt="clear" title="Убрать форматирование">✕</button>
+  </div><div class="rtx inp rich ${big?'big':''} ${empty?'blank':''}" contenteditable="true" data-ph="${esc(ph)}">${empty?'':html}</div></div>`;
+}
+const RT_COLORS = ['#e04848','#f0a050','#f5c542','#5cc65c','#2fbfa0','#4ab0ff','#2f6fd0','#c07aff','#ff77a8','#ffffff','#9b90b8','#1b1209'];
+let rtSel = null;
+document.addEventListener('selectionchange', () => {
+  const sel = getSelection(); if (!sel.rangeCount) return;
+  const n = sel.anchorNode, el = n && (n.nodeType===1 ? n : n.parentElement), ed = el && el.closest && el.closest('.rtx');
+  if (!ed) return;
+  rtSel = {ed, range: sel.getRangeAt(0).cloneRange()};
+  ed.parentElement.querySelectorAll('.rtb [data-rt]').forEach(b=>{
+    if (/^(bold|italic|underline|strikeThrough)$/.test(b.dataset.rt)){ try { b.classList.toggle('on', document.queryCommandState(b.dataset.rt)); } catch(e){} } });
+});
+function rtFocus(ed){
+  const cur = getSelection();
+  if (document.activeElement===ed && cur.rangeCount && ed.contains(cur.anchorNode)) return;
+  ed.focus({preventScroll:true});
+  if (rtSel && rtSel.ed===ed){ const s = getSelection(); s.removeAllRanges(); s.addRange(rtSel.range); }
+}
+const rtChanged = ed => { ed.classList.toggle('blank', !ed.textContent.trim()); };
+function rtExec(ed, cmd, val, css){
+  rtFocus(ed);
+  try { document.execCommand('styleWithCSS', false, !!css); } catch(e){}
+  const ok = document.execCommand(cmd, false, val);
+  rtChanged(ed); return ok;
+}
+function rtPop(b){
+  const tb = b.closest('.rtb'), old = tb.querySelector('.rtpop'), kind = b.dataset.v;
+  if (old){ old.remove(); if (old.dataset.k===kind) return; }
+  const h = kind==='size'
+    ? [['2','Мелкий','.85em'],['3','Обычный','1em'],['4','Крупный','1.2em'],['6','Огромный','1.6em']].map(([v,l,sz])=>`<button type="button" data-rt="size" data-v="${v}" style="font-size:${sz}">${l}</button>`).join('')
+    : RT_COLORS.map(c=>`<button type="button" class="swc" data-rt="${kind}" data-v="${c}" style="background:${c}" title="${c}"></button>`).join('')
+      + (kind==='bg' ? `<button type="button" data-rt="bg" data-v="">Без фона</button>` : '')
+      + `<input type="color" data-rtc="${kind}" title="Свой цвет" value="#4ab0ff">`;
+  tb.insertAdjacentHTML('beforeend', `<div class="rtpop" data-k="${kind}">${h}</div>`);
+}
+function rtColor(ed, kind, v){
+  if (kind==='color') rtExec(ed, 'foreColor', v, true);
+  else if (!rtExec(ed, 'hiliteColor', v || 'transparent', true)) rtExec(ed, 'backColor', v || 'transparent', true);
+  if (kind==='bg' && v && /^#/.test(v)) rtExec(ed, 'foreColor', onColor(v), true);
+}
+function rtQuote(ed){
+  rtFocus(ed); const sel = getSelection(); if (!sel.rangeCount) return;
+  let n = sel.getRangeAt(0).startContainer; n = n.nodeType===1 ? n : n.parentElement;
+  const bq = n.closest('blockquote');
+  if (bq && ed.contains(bq)){
+    const frag = document.createDocumentFragment(); while (bq.firstChild) frag.appendChild(bq.firstChild);
+    const br = document.createElement('br'); bq.replaceWith(frag); if (frag.lastChild) frag.lastChild.after(br);
+  } else {
+    const r = sel.getRangeAt(0);
+    if (!r.collapsed){ const box = document.createElement('div'); box.appendChild(r.cloneContents());
+      document.execCommand('insertHTML', false, `<blockquote>${box.innerHTML}</blockquote>`); }
+    else if (!document.execCommand('formatBlock', false, 'blockquote')) document.execCommand('formatBlock', false, '<blockquote>');
+  }
+  rtChanged(ed);
+}
+function rtLink(ed){
+  rtFocus(ed); const sel = getSelection(); const r = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+  let n = r && r.startContainer; n = n && (n.nodeType===1 ? n : n.parentElement);
+  const a = n && n.closest('a'), inA = a && ed.contains(a);
+  const inp = prompt(inA ? 'Ссылка (оставь пустым, чтобы убрать):' : (r && !r.collapsed ? 'Ссылка для выделенного текста:' : 'Вставь ссылку:'), inA ? a.getAttribute('href') : 'https://');
+  if (inp===null) return;
+  ed.focus({preventScroll:true}); if (r){ sel.removeAllRanges(); sel.addRange(r); }
+  const url = normUrl(inp);
+  if (inA){ if (url) a.setAttribute('href', url); else a.replaceWith(document.createTextNode(a.textContent)); }
+  else if (url){
+    if (r && !r.collapsed) document.execCommand('createLink', false, url);
+    else document.execCommand('insertHTML', false, `<a href="${esc(url)}">${esc(inp.trim())}</a>&nbsp;`);
+  }
+  rtChanged(ed);
+}
+function rtAction(b){
+  const ed = b.closest('.rte').querySelector('.rtx'), c = b.dataset.rt, v = b.dataset.v;
+  if (c==='pop') return rtPop(b);
+  const pop = b.closest('.rtb').querySelector('.rtpop'); if (pop) pop.remove();
+  if (/^(bold|italic|underline|strikeThrough)$/.test(c)){ rtExec(ed, c, null, false); b.classList.toggle('on', document.queryCommandState(c)); }
+  else if (c==='size') rtExec(ed, 'fontSize', v, true);
+  else if (c==='color' || c==='bg') rtColor(ed, c, v);
+  else if (c==='quote') rtQuote(ed);
+  else if (c==='link') rtLink(ed);
+  else if (c==='clear'){ rtExec(ed, 'removeFormat'); rtExec(ed, 'unlink'); }
+}
+document.addEventListener('mousedown', e => { if (e.target.closest && e.target.closest('button[data-rt]')) e.preventDefault(); });
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('button[data-rt]'); if (b) rtAction(b); });
+document.addEventListener('paste', e => {
+  const ed = e.target.closest && e.target.closest('.rtx'); if (!ed) return;
+  e.preventDefault(); const cd = e.clipboardData, h = cd.getData('text/html');
+  document.execCommand('insertHTML', false, h ? richClean(h) : plainToHtml(cd.getData('text/plain'))); rtChanged(ed);
+});
+const rteValue = (f, key) => { const ed = f.querySelector(`[data-rte="${key}"] .rtx`); if (!ed) return null; const h = richClean(ed.innerHTML); return richText(h) ? h : null; };
+
 /* ===================== МОДАЛКИ ===================== */
 function openModal(html){ $('#modal').innerHTML = `<div class="bd" data-a="bd"><div class="px mod">${html}</div></div>`;
   const f = $('#modal input[name=title]'); if (f && !('ontouchstart' in window)) f.focus(); }
@@ -1452,6 +1634,7 @@ function questForm(item, kind, presetDate){
   openModal(`<h2>${editing?'Изменить':'Новый квест'}</h2>
     <form data-f="quest" data-type="${type}" data-id="${item?item.id:''}">
       <div class="fld"><label>Название</label><input class="inp" name="title" value="${esc(item?item.title:'')}" placeholder="Например: медитация 10 минут" required maxlength="120" autocomplete="off"></div>
+      <div class="fld"><span class="lb">Описание (необязательно)</span>${rte('desc', item&&item.desc||'', 'Подробности, ссылки, мотивация…')}</div>
       <div class="fld"><span class="lb">Тип</span><div class="segs">${tOpts}</div></div>
       <div class="fld"><span class="lb">Сложность</span><div class="segs">${dOpts}</div></div>
       <div class="fld"><span class="lb">Условия (необязательно)</span><div id="steps">${(item&&item.steps||[]).map(st=>stepRow(st)).join('')}</div>
@@ -1480,15 +1663,16 @@ function saveQuestForm(f){
   const fd = new FormData(f);
   const type = fd.get('type') || f.dataset.type; const title = String(fd.get('title')||'').trim(); if (!title) return;
   const diff = +fd.get('diff')||1, id = f.dataset.id, t = today(), ic = fd.get('icon') || null;
+  const desc = rteValue(f, 'desc');
   const steps = [...f.querySelectorAll('#steps input')].map(i=>({id:i.dataset.step||uid(), t:i.value.trim()})).filter(st=>st.t);
   if (type==='task'){
     let x = id && S.tasks.find(a=>a.id===id);
     if (!x){ x = {id:uid(), done:false, created:t}; S.tasks.push(x); }
-    Object.assign(x, {title, diff, icon:ic, date:fd.get('date') || t, time:fd.get('time') || null, steps});
+    Object.assign(x, {title, diff, icon:ic, date:fd.get('date') || t, time:fd.get('time') || null, steps, desc});
   } else {
     let q = id && S.quests.find(a=>a.id===id);
     if (!q){ q = {id:uid(), type, hist:{}, best:0, created:t, done:false}; S.quests.push(q); }
-    Object.assign(q, {title, diff, icon:ic, steps});
+    Object.assign(q, {title, diff, icon:ic, steps, desc});
     if (type==='daily'){ q.days = fd.getAll('days').map(Number); if (!q.days.length) q.days = [0,1,2,3,4,5,6]; q.remind = fd.get('remind') || null; }
     if (type==='special'){ q.deadline = fd.get('deadline') || null; if (q.failed && (!q.deadline || q.deadline>=t)) q.failed = false; }
   }
@@ -1507,7 +1691,7 @@ function noteForm(item, presetDate){
   openModal(`<h2>${item?'Заметка':'Новая заметка'}</h2>
     <form data-f="note" data-id="${item?item.id:''}">
       <div class="fld"><label>Заголовок</label><input class="inp" name="title" value="${esc(item?item.title:'')}" placeholder="О чём заметка?" maxlength="100" autocomplete="off"></div>
-      <div class="fld"><label>Текст</label><textarea class="inp" name="body" placeholder="Мысли, планы, итоги дня…">${esc(item?item.body:'')}</textarea></div>
+      <div class="fld"><span class="lb">Текст</span>${rte('body', item ? richClean(noteHtml(item)) : '', 'Мысли, планы, итоги дня…', true)}</div>
       <div class="fld"><label>Привязать к дате (необязательно)</label><input class="inp" type="date" name="date" value="${item?item.date||'':presetDate||''}"></div>
       <label class="chk-l" style="margin-bottom:14px"><input type="checkbox" name="pinned" ${item&&item.pinned?'checked':''}> Закрепить сверху</label>
       ${iconPicker(item&&item.icon)}
@@ -1645,6 +1829,7 @@ const A = {
 };
 document.addEventListener('click', e => {
   ui.click = {x:e.clientX, y:e.clientY};
+  const lk = e.target.closest('a[href]'); if (lk && !lk.closest('.rtx')) return;
   const el = e.target.closest('[data-a]'); if (!el) return;
   const fn = A[el.dataset.a]; if (fn) fn(el,e);
 });
@@ -1665,16 +1850,17 @@ document.addEventListener('submit', e => {
     save(); closeModal(); render();
   }
   if (f.dataset.f==='note'){
-    const title = String(fd.get('title')||'').trim(), body = String(fd.get('body')||'');
-    if (!title && !body.trim()){ closeModal(); return; }
+    const title = String(fd.get('title')||'').trim(), html = rteValue(f, 'body') || '', body = richText(html);
+    if (!title && !body){ closeModal(); return; }
     let n = f.dataset.id && S.notes.find(x=>x.id===f.dataset.id);
     if (!n){ n = {id:uid(), created:new Date().toISOString()}; S.notes.push(n); }
-    Object.assign(n, {title, body, date:fd.get('date')||null, pinned:!!fd.get('pinned'), icon:fd.get('icon')||null, updated:new Date().toISOString()});
+    Object.assign(n, {title, body, html, date:fd.get('date')||null, pinned:!!fd.get('pinned'), icon:fd.get('icon')||null, updated:new Date().toISOString()});
     save(); closeModal(); render();
   }
 });
 document.addEventListener('input', e => {
   const el = e.target;
+  if (el.classList && el.classList.contains('rtx')){ rtChanged(el); return; }
   if (el.dataset && el.dataset.set){
     const v = el.type==='checkbox' ? el.checked : (el.type==='number'||el.type==='range') ? Number(el.value) : el.value;
     setPath(el.dataset.set, v); saveSoon(); applyStyle(); renderChrome();
@@ -1687,6 +1873,7 @@ document.addEventListener('input', e => {
   if (/^rgb[012]$/.test(el.id)){ const c = [0,1,2].map(i=>Math.max(0,Math.min(255,+$('#rgb'+i).value||0))); setPickColor('#'+c.map(x=>x.toString(16).padStart(2,'0')).join('')); }
 });
 document.addEventListener('change', e => {
+  if (e.target.dataset && e.target.dataset.rtc){ const ed = e.target.closest('.rte').querySelector('.rtx'); rtColor(ed, e.target.dataset.rtc, e.target.value); e.target.closest('.rtpop').remove(); return; }
   if (e.target.closest && e.target.closest('form[data-f=quest]')) updatePreview();
 });
 document.addEventListener('keydown', e => {
