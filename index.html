@@ -107,6 +107,12 @@ nav.tabs .more{display:none}
 textarea.inp{resize:vertical;min-height:220px;line-height:1.5}
 select.inp{cursor:pointer}
 
+/* drag & drop */
+.drag{flex:none;cursor:grab;touch-action:none;padding:8px 4px;margin:-8px -4px -8px -6px;opacity:.45;display:flex;align-items:center}
+.drag:hover{opacity:1}
+.qrow.dragging{outline:3px dashed var(--accent);outline-offset:-3px;position:relative;z-index:2;opacity:1}
+body.dragmode{user-select:none;-webkit-user-select:none;cursor:grabbing}
+
 /* steps (checklist) */
 .steps{display:flex;flex-direction:column;gap:4px;margin-top:8px}
 .step{display:flex;align-items:center;gap:8px;border:0;background:none;padding:2px 0;cursor:pointer;text-align:left;font-size:.92em;color:var(--ink)}
@@ -457,6 +463,7 @@ const ICONS = {
   quill:[".....rr","....rrr","...yyr.","..yyy..",".yyy...","wyy....","ii....."],
   palette:[".bbbbb.","brrbbbb","brrbxxb","bbbbxxb","bnnbbb.","bnnb...",".bb...."],
   gear:["..i.i..",".iiiii.","iii.iii",".i...i.","iii.iii",".iiiii.","..i.i.."],
+  grip:["ii.ii","ii.ii",".....","ii.ii","ii.ii",".....","ii.ii","ii.ii"],
   dots:["........","........","........","ii.ii.ii","ii.ii.ii","........","........","........"],
 };
 const icon = (n,s=14) => pix(ICONS[n], s);
@@ -845,8 +852,8 @@ function qRow(q, opts={}){
   if (q.type==='special') chips.push(deadlineChip(q));
   if (q.type==='daily' && q.remind) chips.push(`<span class="chip">⏰ ${q.remind}</span>`);
   if (hasSteps(q)) chips.push(stepChip(q,'quest'));
-  return `<div class="qrow t-${q.type} ${done?'done':''} ${q.failed&&!done?'failed':''}">
-    ${chk(done,'toggle',q.id)}${iconCell(q,q.type)}
+  return `<div class="qrow t-${q.type} ${done?'done':''} ${q.failed&&!done?'failed':''}" data-id="${q.id}" data-k="quest" data-g="q-${q.type}">
+    <span class="drag" title="Перетащить">${icon('grip',10)}</span>${chk(done,'toggle',q.id)}${iconCell(q,q.type)}
     <div class="qb"><div class="qt">${esc(q.title)}</div><div class="qm">${chips.join('')}</div>${stepsHtml(q,'quest',done)}</div>
     <div class="rw">${rewardHtml(done ? r : rewardFor(q,q.type))}</div>
     <button class="ib" data-a="edit" data-id="${q.id}" title="Изменить">✎</button></div>`;
@@ -859,8 +866,8 @@ function tRow(x, opts={}){
   else if (!x.done && x.date>t) chips.push(`<span class="chip">${fmtDate(x.date,{weekday:'short',day:'numeric',month:'short'})}</span>`);
   if (x.time && !x.done) chips.push(`<span class="chip">⏰ ${x.time}</span>`);
   if (hasSteps(x)) chips.push(stepChip(x,'task'));
-  return `<div class="qrow t-task ${x.done?'done':''}">
-    ${chk(x.done,'toggleTask',x.id)}${iconCell(x,'task')}
+  return `<div class="qrow t-task ${x.done?'done':''}" data-id="${x.id}" data-k="task" data-g="task">
+    <span class="drag" title="Перетащить">${icon('grip',10)}</span>${chk(x.done,'toggleTask',x.id)}${iconCell(x,'task')}
     <div class="qb"><div class="qt">${esc(x.title)}</div><div class="qm">${chips.join('')}</div>${stepsHtml(x,'task',x.done)}</div>
     <div class="rw">${rewardHtml(x.done?x.doneReward:rewardFor(x,'task'))}</div>
     <button class="ib" data-a="editTask" data-id="${x.id}" title="Изменить">✎</button></div>`;
@@ -876,8 +883,8 @@ function vToday(){
   const t = today();
   const dailies = S.quests.filter(q=>scheduled(q,t));
   const weeklies = S.quests.filter(q=>q.type==='weekly');
-  const specials = S.quests.filter(q=>q.type==='special' && (!q.done || q.doneAt===t)).sort((a,b)=>(a.deadline||'9999').localeCompare(b.deadline||'9999'));
-  const tasks = S.tasks.filter(x=>(!x.done && x.date<=t) || (x.done && x.doneAt===t)).sort((a,b)=>(a.done-b.done) || a.date.localeCompare(b.date));
+  const specials = S.quests.filter(q=>q.type==='special' && (!q.done || q.doneAt===t));
+  const tasks = S.tasks.filter(x=>(!x.done && x.date<=t) || (x.done && x.doneAt===t)).sort((a,b)=>a.done-b.done);
   const dd = dailies.filter(q=>q.hist[t]).length, wdn = weeklies.filter(q=>q.hist[weekOf(t)]).length, td = tasks.filter(x=>x.done).length;
   const label = cap(parse(t).toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'}));
   const total = dailies.length + tasks.length, doneAll = dd + td;
@@ -897,7 +904,7 @@ function vQuests(){
   const order = {daily:0,weekly:1,special:2};
   if (f!=='task') rows += S.quests.filter(q=>f==='all'||q.type===f).sort((a,b)=>order[a.type]-order[b.type] || (a.done?1:0)-(b.done?1:0)).map(q=>qRow(q,{showType:f==='all'})).join('');
   if (f==='all'||f==='task'){
-    rows += S.tasks.filter(x=>!x.done).sort((a,b)=>a.date.localeCompare(b.date)).map(x=>tRow(x,{showType:f==='all'})).join('');
+    rows += S.tasks.filter(x=>!x.done).map(x=>tRow(x,{showType:f==='all'})).join('');
     if (f==='task') rows += S.tasks.filter(x=>x.done).sort((a,b)=>(b.doneAt||'').localeCompare(a.doneAt||'')).slice(0,10).map(x=>tRow(x)).join('');
   }
   const m = R().mult;
@@ -1392,7 +1399,7 @@ $job$);`,
 function vMini(){
   const t = today(), h = S.hero, need = xpNeed(h.level);
   const dailies = S.quests.filter(q=>scheduled(q,t));
-  const tasks = S.tasks.filter(x=>(!x.done && x.date<=t) || (x.done && x.doneAt===t)).sort((a,b)=>(a.done-b.done) || (a.time||'99').localeCompare(b.time||'99'));
+  const tasks = S.tasks.filter(x=>(!x.done && x.date<=t) || (x.done && x.doneAt===t)).sort((a,b)=>a.done-b.done);
   const weeklies = S.quests.filter(q=>q.type==='weekly' && !q.hist[weekOf(t)]);
   const specials = S.quests.filter(q=>q.type==='special' && !q.done && !q.failed && q.deadline && daysBetween(t,q.deadline)<=2);
   const all = dailies.length + tasks.length, done = dailies.filter(q=>q.hist[t]).length + tasks.filter(x=>x.done).length;
@@ -1688,6 +1695,41 @@ document.addEventListener('keydown', e => {
   if (ui.view==='studio' && (e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)){ e.preventDefault(); A.edUndo(); }
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyStyle);
+
+/* перетаскивание квестов */
+document.addEventListener('pointerdown', e => {
+  const h = e.target.closest && e.target.closest('.drag'); if (!h || e.button>0) return;
+  e.preventDefault();
+  const row = h.closest('.qrow'), list = row.parentElement, g = row.dataset.g;
+  const rows = () => [...list.children].filter(r=>r.classList.contains('qrow') && r.dataset.g===g);
+  const start = rows().map(r=>r.dataset.id).join();
+  row.classList.add('dragging'); document.body.classList.add('dragmode');
+  let lastY = e.clientY, raf = null;
+  const place = () => {
+    const sibs = rows().filter(r=>r!==row); let before = null;
+    for (const r of sibs){ const b = r.getBoundingClientRect(); if (lastY < b.top + b.height/2){ before = r; break; } }
+    if (before){ if (row.nextElementSibling!==before) list.insertBefore(row, before); }
+    else if (sibs.length){ const last = sibs[sibs.length-1]; if (last.nextElementSibling!==row) last.after(row); }
+  };
+  const scroll = () => {
+    const edge = 90, sp = lastY < edge ? -(edge-lastY)/4 : lastY > innerHeight-edge-60 ? (lastY-(innerHeight-edge-60))/4 : 0;
+    if (sp){ scrollBy(0, sp); place(); raf = requestAnimationFrame(scroll); } else raf = null;
+  };
+  const move = ev => { lastY = ev.clientY; place(); if (!raf) raf = requestAnimationFrame(scroll); };
+  const up = () => {
+    document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up);
+    if (raf) cancelAnimationFrame(raf);
+    row.classList.remove('dragging'); document.body.classList.remove('dragmode');
+    const ids = rows().map(r=>r.dataset.id); if (ids.join()===start) return;
+    const arr = row.dataset.k==='task' ? S.tasks : S.quests;
+    const pos = ids.map(id=>arr.findIndex(x=>x.id===id)).sort((a,b)=>a-b);
+    const items = ids.map(id=>arr.find(x=>x.id===id));
+    if (pos.some(p=>p<0)) return render();
+    pos.forEach((p,i)=>{ arr[p] = items[i]; });
+    save(); render();
+  };
+  document.addEventListener('pointermove', move); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up);
+});
 
 function tick(){ if (S && $('#main').innerHTML && today()!==renderedDay){ processDays(); render(); } }
 document.addEventListener('visibilitychange', () => {
